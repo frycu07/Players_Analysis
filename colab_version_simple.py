@@ -53,4 +53,6 @@ print("\nWybierz pozycję:")
 for i, position in enumerate(['Wszystkie'] + positions):
     print(f"{i}: {position}")
 position_idx = int(input("Podaj numer pozycji: "))
-selected_position = 'Wszystkie' if position_idx == 0 else positions[position_idx-1] 
+selected_position = 'Wszystkie' if position_idx == 0 else positions[position_idx-1]
+
+radar_stats = list(dict.fromkeys(radar_stats)) 

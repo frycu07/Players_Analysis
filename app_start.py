@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from rankings import show_rankings  # Dodajemy import modułu rankings
 from raport_generator import generate_report
+from team_stats import analyze_team_stats  # Dodajemy import modułu team_stats
+from Player_form import show_player_form  # Dodajemy import modułu Player_form
 
 
 # Wczytanie danych
@@ -23,7 +25,20 @@ def load_data(file):
             if not kolumny_df.empty and len(kolumny_df.columns) > 0:
                 # Sprawdź czy liczba kolumn się zgadza
                 if len(df.columns) == len(kolumny_df.columns):
-                    df.columns = kolumny_df.columns
+                    # Get the first row of kolumny_df if it contains the actual column names
+                    if kolumny_df.shape[0] > 0:
+                        # Check if the first row contains the actual column names
+                        first_row = kolumny_df.iloc[0].tolist()
+
+                        # If the first row contains strings and not all are NaN, use it as column names
+                        if all(isinstance(x, str) for x in first_row if pd.notna(x)) and any(pd.notna(x) for x in first_row):
+                            df.columns = first_row
+                        else:
+                            # Use the column names from kolumny_df
+                            df.columns = kolumny_df.columns
+                    else:
+                        # Use the column names from kolumny_df
+                        df.columns = kolumny_df.columns
                 else:
                     st.warning(f"Liczba kolumn w pliku ({len(df.columns)}) nie zgadza się z liczbą kolumn w pliku Kolumny.xlsx ({len(kolumny_df.columns)}). Nazwy kolumn nie zostały nadpisane.")
         except Exception as e:
@@ -40,9 +55,14 @@ def main():
     st.title('Analiza Statystyk Piłkarzy')
 
     # Wybór trybu aplikacji
-    app_mode = st.sidebar.radio('Wybierz tryb:', ['Analiza Zawodników', 'Rankingi', 'Raport'])
+    app_mode = st.sidebar.radio('Wybierz tryb:', ['Analiza Zawodników', 'Analiza Drużyny', 'Porównanie Drużyn', 'Rankingi', 'Raport', 'Formularze Zawodników'])
 
-    # Dodanie uploadera plików
+    # Obsługa trybu Formularze Zawodników osobno
+    if app_mode == 'Formularze Zawodników':
+        show_player_form()
+        return
+
+    # Dodanie uploadera plików dla pozostałych trybów
     uploaded_file = st.file_uploader("Wybierz plik Excel z danymi", type=['xlsx', 'xls'])
 
     if uploaded_file is None:
@@ -55,32 +75,47 @@ def main():
         st.warning("Nie udało się wczytać danych z pliku.")
         return
 
-    # Filtr drużyn (Team within selected timeframe) - menu rozwijane
-    teams = df['Team within selected timeframe'].dropna().unique()
-    selected_teams = st.selectbox('Wybierz drużynę:', options=['Wszystkie'] + list(teams))
+    # Inicjalizacja zmiennych filtrów z wartościami domyślnymi
+    selected_teams = 'Wszystkie'
+    selected_positions = []
+    selected_minutes = int(df['Minutes played'].min())
+    filter_mode = 'Tylko dla filtrowanych zawodników'
 
-    # Filtr pozycji - menu rozwijane z możliwością wyboru wielu pozycji
-    all_positions = set()
-    for positions_str in df['Position'].dropna():
-        # Dzielimy string pozycji na pojedyncze pozycje
-        individual_positions = [pos.strip() for pos in str(positions_str).split(',')]
-        # Dodajemy każdą pojedynczą pozycję do zbioru
-        for pos in individual_positions:
-            if pos:  # Sprawdzamy czy pozycja nie jest pustym stringiem
-                all_positions.add(pos)
-    positions = sorted(list(all_positions))  # Sortujemy alfabetycznie
-    selected_positions = st.multiselect('Wybierz pozycje:', options=positions, default=[])
+    # Pokazuj filtry tylko dla trybów Analiza Zawodników i Rankingi
+    if app_mode == 'Analiza Zawodników' or app_mode == 'Rankingi':
+        # Filtr drużyn (Team within selected timeframe) - menu rozwijane
+        teams = df['Team within selected timeframe'].dropna().unique()
+        selected_teams = st.selectbox('Wybierz drużynę:', options=['Wszystkie'] + list(teams))
 
-    # Filtr liczby rozegranych minut - suwak
-    min_minutes = int(df['Minutes played'].min())
-    max_minutes = int(df['Minutes played'].max())
-    selected_minutes = st.slider('Minimalna liczba minut:', min_value=min_minutes, max_value=max_minutes,
-                                 value=min_minutes)
+        # Filtr pozycji - menu rozwijane z możliwością wyboru wielu pozycji
+        all_positions = set()
+        for positions_str in df['Position'].dropna():
+            # Dzielimy string pozycji na pojedyncze pozycje
+            individual_positions = [pos.strip() for pos in str(positions_str).split(',')]
+            # Dodajemy każdą pojedynczą pozycję do zbioru
+            for pos in individual_positions:
+                if pos:  # Sprawdzamy czy pozycja nie jest pustym stringiem
+                    all_positions.add(pos)
+        positions = sorted(list(all_positions))  # Sortujemy alfabetycznie
+        selected_positions = st.multiselect('Wybierz pozycje:', options=positions, default=[])
 
-    # Przełącznik dla trybu filtrowania
-    filter_mode = st.radio('Wybierz tryb:', ['Tylko dla filtrowanych zawodników', 'Dla wszystkich zawodników w lidze'])
+        # Filtr liczby rozegranych minut - suwak
+        min_minutes = int(df['Minutes played'].min())
+        max_minutes = int(df['Minutes played'].max())
+        selected_minutes = st.slider('Minimalna liczba minut:', min_value=min_minutes, max_value=max_minutes,
+                                    value=min_minutes)
 
-    if app_mode == 'Rankingi':
+        # Przełącznik dla trybu filtrowania
+        filter_mode = st.radio('Wybierz tryb:', ['Tylko dla filtrowanych zawodników', 'Dla wszystkich zawodników w lidze'])
+
+    if app_mode == 'Analiza Drużyny':
+        analyze_team_stats(df)
+        return
+    elif app_mode == 'Porównanie Drużyn':
+        from team_stats import compare_teams
+        compare_teams(df)
+        return
+    elif app_mode == 'Rankingi':
         show_rankings(df, selected_teams, selected_positions, selected_minutes, filter_mode)
         return
     elif app_mode == 'Raport':
@@ -104,6 +139,9 @@ def main():
                         lambda x: any(pos in [p.strip() for p in str(x).split(',')] for pos in positions)
                     )]
                 filtered = filtered[filtered['Minutes played'] >= minutes]
+            else:
+                # Dla trybu "Dla wszystkich zawodników w lidze" filtrujemy tylko po minutach
+                filtered = filtered[filtered['Minutes played'] >= minutes]
 
             if filtered.empty:
                 st.warning("Filtry zwróciły pusty zbiór danych")
@@ -122,14 +160,7 @@ def main():
         return
 
     # Lista zawodników do wyboru - filtrowana według wybranej drużyny i pozycji
-    players_for_selection = df.copy()
-    if selected_teams != 'Wszystkie':
-        players_for_selection = players_for_selection[players_for_selection['Team within selected timeframe'] == selected_teams]
-    if selected_positions:
-        players_for_selection = players_for_selection[players_for_selection['Position'].apply(
-            lambda x: any(pos in [p.strip() for p in str(x).split(',')] for pos in selected_positions)
-        )]
-    players_for_selection = players_for_selection['Player'].unique()
+    players_for_selection = filtered_df['Player'].unique()
 
     if len(players_for_selection) == 0:
         st.warning("Brak zawodników spełniających wybrane kryteria drużyny i pozycji.")
@@ -139,12 +170,14 @@ def main():
     player = st.selectbox('Wybierz zawodnika:', players_for_selection)
     player_data = filtered_df[filtered_df['Player'] == player].copy()
 
-    # Dodajemy wybór drugiego zawodnika dla wykresu radarowego
-    show_comparison = st.checkbox('Porównaj z innym zawodnikiem')
+    # Dodajemy wybór do 4 zawodników do porównania dla wykresu radarowego (łącznie 5 zawodników)
+    show_comparison = st.checkbox('Porównaj z innymi zawodnikami')
+    comparison_players = []
+    comparison_players_data = {}
     if show_comparison:
-        player2 = st.selectbox('Wybierz drugiego zawodnika:', 
-                             [p for p in players_for_selection if p != player])
-        player2_data = filtered_df[filtered_df['Player'] == player2].copy()
+        comparison_players = st.multiselect('Wybierz zawodników do porównania (max 4):', 
+                                       [p for p in players_for_selection if p != player],
+                                       max_selections=4)
 
     if player_data.empty:
         st.warning("Brak danych dla wybranego zawodnika! Spróbuj zmienić filtry.")
@@ -308,7 +341,10 @@ def main():
 
     # Normalizacja danych dla wykresów
     numeric_data = filtered_df[selected_stats].copy()
-    numeric_norm = pd.DataFrame()
+
+    # Przygotowanie słowników do przechowywania danych przed utworzeniem DataFrame
+    percentile_data = {}
+    rank_data = {}
 
     for col in numeric_data.columns:
         # Filtrujemy zawodników z wartością > 0
@@ -317,28 +353,34 @@ def main():
 
         if non_zero_count > 0:
             # Obliczamy ranking tylko dla zawodników z wartością > 0
-            numeric_data.loc[non_zero_mask, f'{col}_rank'] = numeric_data[col][non_zero_mask].rank(ascending=False, method='min')
+            rank_series = numeric_data[col][non_zero_mask].rank(ascending=False, method='min')
+            numeric_data.loc[non_zero_mask, f'{col}_rank'] = rank_series
 
             # Obliczamy percentyl jako (pozycja / liczba zawodników z wartością > 0) * 100
-            numeric_norm[f'{col}_percentile'] = numeric_data[f'{col}_rank'].apply(
+            percentile_series = numeric_data[f'{col}_rank'].apply(
                 lambda x: ((non_zero_count - x + 1) / non_zero_count * 100) if x > 0 else 0
             )
+            percentile_data[f'{col}_percentile'] = percentile_series
 
             # Dla zawodników z wartością 0 ustawiamy rank i percentyl na 0
             numeric_data.loc[~non_zero_mask, f'{col}_rank'] = 0
-            numeric_norm.loc[~non_zero_mask, f'{col}_percentile'] = 0
         else:
             # Jeśli wszyscy mają 0, ustawiamy ranking i percentyl na 0
             numeric_data[f'{col}_rank'] = 0
-            numeric_norm[f'{col}_percentile'] = 0
+            percentile_data[f'{col}_percentile'] = pd.Series(0, index=numeric_data.index)
 
-    filtered_df = pd.concat([filtered_df, numeric_norm], axis=1)
-    filtered_df = pd.concat([filtered_df, numeric_data[[col + '_rank' for col in selected_stats]]], axis=1)
+    # Tworzenie DataFrame z wszystkimi kolumnami percentile na raz
+    numeric_norm = pd.DataFrame(percentile_data)
+
+    # Łączenie wszystkich danych w jeden DataFrame
+    rank_columns = [col + '_rank' for col in selected_stats]
+    filtered_df = pd.concat([filtered_df, numeric_norm, numeric_data[rank_columns]], axis=1).copy()
     player_data = filtered_df[filtered_df['Player'] == player].copy()
 
-    # Aktualizacja danych dla drugiego zawodnika jeśli jest wybrany
-    if show_comparison:
-        player2_data = filtered_df[filtered_df['Player'] == player2].copy()
+    # Aktualizacja danych dla porównywanych zawodników jeśli są wybrani
+    if show_comparison and comparison_players:
+        for comp_player in comparison_players:
+            comparison_players_data[comp_player] = filtered_df[filtered_df['Player'] == comp_player].copy()
 
     # Wyświetlanie wykresów
     st.subheader('Wizualizacja Statystyk')
@@ -393,24 +435,27 @@ def main():
         else:
             radar_stats = selected_stats
 
-        # Przygotowanie danych do wykresu radarowego dla pierwszego zawodnika
+        # Usuwamy duplikaty ze statystyk radarowych
+        radar_stats = list(dict.fromkeys(radar_stats))
+
+        # Definiujemy tytuł wykresu
+        chart_title = f"Statystyki zawodnika: {player}"
+        if show_comparison and comparison_players:
+            comparison_names = ", ".join(comparison_players)
+            chart_title += f" vs {comparison_names}"
+
+        fig = go.Figure()
+
+        # Dodaj głównego zawodnika
         radar_values = []
         hover_texts = []
         for stat in radar_stats:
             percentile_col = stat + '_percentile'
-            try:
-                percentile = player_data[percentile_col].iloc[0] if not player_data.empty else 0
-                actual_value = player_data[stat].iloc[0] if not player_data.empty else 0
-                radar_values.append(percentile)
-                hover_texts.append(f"Wartość: {actual_value}<br>Percentyl: {percentile:.1f}%")
-            except Exception:
-                radar_values.append(0)
-                hover_texts.append("Brak danych")
+            percentile = player_data[percentile_col].iloc[0] if not player_data.empty else 0
+            actual_value = player_data[stat].iloc[0] if not player_data.empty else "-"
+            radar_values.append(percentile)
+            hover_texts.append(f"Wartość: {actual_value}<br>Percentyl: {percentile:.1f}%")
 
-        # Tworzenie wykresu radarowego
-        fig = go.Figure()
-
-        # Dodanie pierwszego zawodnika
         fig.add_trace(go.Scatterpolar(
             r=radar_values,
             theta=radar_stats,
@@ -422,31 +467,42 @@ def main():
             line=dict(color='rgb(99, 110, 250)')
         ))
 
-        # Dodanie drugiego zawodnika jeśli wybrano porównanie
-        if show_comparison:
-            radar_values2 = []
-            hover_texts2 = []
-            for stat in radar_stats:
-                percentile_col = stat + '_percentile'
-                try:
-                    percentile = player2_data[percentile_col].iloc[0] if not player2_data.empty else 0
-                    actual_value = player2_data[stat].iloc[0] if not player2_data.empty else 0
-                    radar_values2.append(percentile)
-                    hover_texts2.append(f"Wartość: {actual_value}<br>Percentyl: {percentile:.1f}%")
-                except Exception:
-                    radar_values2.append(0)
-                    hover_texts2.append("Brak danych")
+        # Dodaj porównywanych zawodników
+        if show_comparison and comparison_players:
+            # Kolory dla porównywanych zawodników
+            colors = [
+                ('rgba(239, 85, 59, 0.2)', 'rgb(239, 85, 59)'),
+                ('rgba(0, 204, 150, 0.2)', 'rgb(0, 204, 150)'),
+                ('rgba(171, 99, 250, 0.2)', 'rgb(171, 99, 250)'),
+                ('rgba(255, 161, 90, 0.2)', 'rgb(255, 161, 90)')
+            ]
 
-            fig.add_trace(go.Scatterpolar(
-                r=radar_values2,
-                theta=radar_stats,
-                fill='toself',
-                name=player2,
-                text=hover_texts2,
-                hovertemplate="%{text}<extra></extra>",
-                fillcolor='rgba(239, 85, 59, 0.2)',
-                line=dict(color='rgb(239, 85, 59)')
-            ))
+            for i, comp_player in enumerate(comparison_players):
+                if comp_player in comparison_players_data:
+                    comp_data = comparison_players_data[comp_player]
+
+                    # Używamy różnych kolorów dla każdego porównywanego zawodnika
+                    fillcolor, linecolor = colors[i % len(colors)]
+
+                    radar_values_comp = []
+                    hover_texts_comp = []
+                    for stat in radar_stats:
+                        percentile_col = stat + '_percentile'
+                        percentile = comp_data[percentile_col].iloc[0] if not comp_data.empty else 0
+                        actual_value = comp_data[stat].iloc[0] if not comp_data.empty else "-"
+                        radar_values_comp.append(percentile)
+                        hover_texts_comp.append(f"Wartość: {actual_value}<br>Percentyl: {percentile:.1f}%")
+
+                    fig.add_trace(go.Scatterpolar(
+                        r=radar_values_comp,
+                        theta=radar_stats,
+                        fill='toself',
+                        name=comp_player,
+                        text=hover_texts_comp,
+                        hovertemplate="%{text}<extra></extra>",
+                        fillcolor=fillcolor,
+                        line=dict(color=linecolor)
+                    ))
 
         fig.update_layout(
             polar=dict(
@@ -456,7 +512,7 @@ def main():
                 )
             ),
             showlegend=True,
-            title=f'Profil zawodnika: {player}' + (f' vs {player2}' if show_comparison else '')
+            title=chart_title
         )
 
         st.plotly_chart(fig)
@@ -464,12 +520,16 @@ def main():
         # Tabela z wartościami
         st.write("Dokładne wartości:")
 
-        # Modyfikacja tabeli HTML aby pokazać obu zawodników
+        # Modyfikacja tabeli HTML aby pokazać wybranych zawodników
         col_widths = {'stat': '200px', 'bar1': '200px', 'value1': '80px'}
-        if show_comparison:
-            col_widths['bar2'] = '200px'
-            col_widths['value2'] = '80px'
 
+        # Dodajemy kolumny dla porównywanych zawodników
+        if show_comparison and comparison_players:
+            for i, comp_player in enumerate(comparison_players):
+                col_widths[f'bar{i+2}'] = '200px'
+                col_widths[f'value{i+2}'] = '80px'
+
+        # Tworzymy nagłówek tabeli
         table_html = '<table style="width:100%; border-collapse: collapse;">'
         table_html += '<tr><th style="width:{}; text-align: left; border: 1px solid black;">Statystyka</th>'.format(
             col_widths['stat'])
@@ -477,18 +537,22 @@ def main():
             col_widths['bar1'], player)
         table_html += '<th style="width:{}; text-align: left; border: 1px solid black;">Wartość</th>'.format(
             col_widths['value1'])
-        if show_comparison:
-            table_html += '<th style="width:{}; text-align: left; border: 1px solid black;">{}</th>'.format(
-                col_widths['bar2'], player2)
-            table_html += '<th style="width:{}; text-align: left; border: 1px solid black;">Wartość</th>'.format(
-                col_widths['value2'])
+
+        # Dodajemy nagłówki dla porównywanych zawodników
+        if show_comparison and comparison_players:
+            for i, comp_player in enumerate(comparison_players):
+                table_html += '<th style="width:{}; text-align: left; border: 1px solid black;">{}</th>'.format(
+                    col_widths[f'bar{i+2}'], comp_player)
+                table_html += '<th style="width:{}; text-align: left; border: 1px solid black;">Wartość</th>'.format(
+                    col_widths[f'value{i+2}'])
         table_html += '</tr>'
 
+        # Wypełniamy tabelę danymi
         for stat in radar_stats:
             percentile_col = stat + '_percentile'
             try:
-                # Dane pierwszego zawodnika
-                value1 = player_data[stat].iloc[0] if not player_data.empty else 0
+                # Dane głównego zawodnika
+                value1 = player_data[stat].iloc[0] if not player_data.empty else "-"
                 percentile1 = player_data[percentile_col].iloc[0] if not player_data.empty else 0
                 color1 = sns.color_palette('RdYlGn', as_cmap=True)(percentile1 / 100)
                 rgb_color1 = f'rgb({int(color1[0] * 255)}, {int(color1[1] * 255)}, {int(color1[2] * 255)})'
@@ -501,26 +565,37 @@ def main():
                 table_html += f'<td style="width:{col_widths["bar1"]}; border: 1px solid black;">{bar_html1}</td>'
                 table_html += f'<td style="width:{col_widths["value1"]}; border: 1px solid black;">{value1}</td>'
 
-                # Dodaj dane drugiego zawodnika jeśli wybrano porównanie
-                if show_comparison:
-                    value2 = player2_data[stat].iloc[0] if not player2_data.empty else 0
-                    percentile2 = player2_data[percentile_col].iloc[0] if not player2_data.empty else 0
-                    color2 = sns.color_palette('RdYlGn', as_cmap=True)(percentile2 / 100)
-                    rgb_color2 = f'rgb({int(color2[0] * 255)}, {int(color2[1] * 255)}, {int(color2[2] * 255)})'
+                # Dodaj dane dla porównywanych zawodników
+                if show_comparison and comparison_players:
+                    for i, comp_player in enumerate(comparison_players):
+                        if comp_player in comparison_players_data:
+                            comp_data = comparison_players_data[comp_player]
+                            value_comp = comp_data[stat].iloc[0] if not comp_data.empty else "-"
+                            percentile_comp = comp_data[percentile_col].iloc[0] if not comp_data.empty else 0
+                            color_comp = sns.color_palette('RdYlGn', as_cmap=True)(percentile_comp / 100)
+                            rgb_color_comp = f'rgb({int(color_comp[0] * 255)}, {int(color_comp[1] * 255)}, {int(color_comp[2] * 255)})'
 
-                    bar_html2 = f'<div style="width:{col_widths["bar2"]}; background:lightgrey; border:1px solid black; height:20px; position:relative;">'
-                    bar_html2 += f'<div style="width:{percentile2}%; background:{rgb_color2}; height:100%;"></div></div>'
+                            bar_html_comp = f'<div style="width:{col_widths[f"bar{i+2}"]}; background:lightgrey; border:1px solid black; height:20px; position:relative;">'
+                            bar_html_comp += f'<div style="width:{percentile_comp}%; background:{rgb_color_comp}; height:100%;"></div></div>'
 
-                    table_html += f'<td style="width:{col_widths["bar2"]}; border: 1px solid black;">{bar_html2}</td>'
-                    table_html += f'<td style="width:{col_widths["value2"]}; border: 1px solid black;">{value2}</td>'
+                            table_html += f'<td style="width:{col_widths[f"bar{i+2}"]}; border: 1px solid black;">{bar_html_comp}</td>'
+                            table_html += f'<td style="width:{col_widths[f"value{i+2}"]}; border: 1px solid black;">{value_comp}</td>'
+                        else:
+                            # Jeśli brak danych dla tego zawodnika
+                            table_html += f'<td style="width:{col_widths[f"bar{i+2}"]}; border: 1px solid black;">-</td>'
+                            table_html += f'<td style="width:{col_widths[f"value{i+2}"]}; border: 1px solid black;">-</td>'
 
                 table_html += '</tr>'
 
             except Exception:
                 table_html += f'<tr><td style="border: 1px solid black;">{stat}</td>'
                 table_html += '<td style="border: 1px solid black;">-</td><td style="border: 1px solid black;">-</td>'
-                if show_comparison:
-                    table_html += '<td style="border: 1px solid black;">-</td><td style="border: 1px solid black;">-</td>'
+
+                # Dodaj puste komórki dla porównywanych zawodników w przypadku błędu
+                if show_comparison and comparison_players:
+                    for i in range(len(comparison_players)):
+                        table_html += '<td style="border: 1px solid black;">-</td><td style="border: 1px solid black;">-</td>'
+
                 table_html += '</tr>'
 
         table_html += '</table>'
